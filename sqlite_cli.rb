@@ -17,24 +17,18 @@ class SqliteCli
     }
   end
 
-  def read(table_name, fields, conditions) # rubocop:disable Metrics/MethodLength
+  def read(table_name, fields, conditions)
     statement = <<-SQL
       SELECT #{fields.join(',')} FROM #{table_name}
     SQL
-    unless conditions.nil?
-      where_clause = 'WHERE '
-      conditions.each do |cond|
-        signature, field, value = extract_condition_signature_params(cond)
-        condition_sql = @sql_condition_handlers[signature].call(field, value)
-        where_clause += "#{condition_sql} AND "
-      end
-      where_clause = where_clause[0..-5] if where_clause.end_with?('AND ')
+    unless conditions.nil? && conditions.empty?
+      where_clause = generate_where_clause(conditions)
       statement += "#{where_clause};"
     end
     @storage.execute statement
   end
 
-  def write(table_name, fields, values)
+  def insert(table_name, fields, values)
     converted_values = []
     values.each do |val|
       if val.is_a? Numeric
@@ -49,9 +43,16 @@ class SqliteCli
     SQL
   end
 
+  def delete(table_name, conditions)
+    raise 'delete query without condition is not allowed' if conditions.nil? || conditions.empty?
+
+    delete_query = "DELETE FROM #{table_name}#{generate_where_clause(conditions)}"
+    @storage.execute delete_query
+  end
+
   def update(table_name, fields, values, conditions) # rubocop:disable Metrics/MethodLength, Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
     raise 'length of fields and values for update must be equal' if fields.length != values.length
-    raise 'update query without condition is not allowed' if conditions.empty? || conditions.nil?
+    raise 'update query without condition is not allowed' if conditions.nil? || conditions.empty?
 
     update_statement = "UPDATE #{table_name} SET "
     fields.zip(values).each do |field_val_couple|
@@ -61,7 +62,17 @@ class SqliteCli
       update_statement += "#{field} = #{val},"
     end
     update_statement = update_statement[0..-2] if update_statement.end_with?(',')
+    unless conditions.nil? && conditions.empty?
+      where_clause = generate_where_clause(conditions)
+      update_statement += where_clause
+    end
+    update_statement += ';'
+    @storage.execute update_statement
+  end
 
+  private
+
+  def generate_where_clause(conditions)
     where_clause = ' WHERE '
     conditions.each do |cond|
       signature, field, value = extract_condition_signature_params(cond)
@@ -69,12 +80,8 @@ class SqliteCli
       where_clause += "#{condition_sql} AND "
     end
     where_clause = where_clause[0..-5] if where_clause.end_with?('AND ')
-    update_statement += "#{where_clause};"
-
-    @storage.execute update_statement
+    where_clause
   end
-
-  private
 
   def extract_condition_signature_params(condition_container)
     signature = condition_container[:signature]

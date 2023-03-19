@@ -28,27 +28,46 @@ class MentionCounter
 
   def register_command_handlers
     calculate_mentions_handler
+    reset_mentions_for_chan_handler
   end
 
-  def calculate_mentions_handler
+  def calculate_mentions_handler # rubocop:disable Metrics/MethodLength
     @discord_cli.command(
       :calculate,
       chain_usable: true,
       description: 'Takes input and multiplies number of mentions for each user by that input'
-    ) do |_event, mention_value|
-      return 'mention value has to be a number' unless mention_value.to_i
+    ) do |event, mention_value|
+      return 'mention value has to be a number and bigger than zero' unless mention_value.to_i != 0
 
-      rows = @db_cli.read('mentions', ['*'], nil)
+      rows = @db_cli.read(
+        'mentions',
+        ['*'],
+        [{ signature: :eq, params: ['channel_id', event.channel.id] }]
+      )
       rows.map { |r| "#{r['user']}: #{r['count'].to_i * mention_value.to_i}" }.compact.join('
-        ')
+')
+    end
+  end
+
+  def reset_mentions_for_chan_handler
+    @discord_cli.command(
+      :reset_counts,
+      chain_usable: true,
+      description: 'Resets (deletes) mention counts for the channel command was called in',
+    ) do |event|
+      @db_cli.delete(
+        'mentions', [{ signature: :eq, params: ['channel_id', event.channel.id] }]
+      )
+      'counters successfully reset'
     end
   end
 
   def increment_mentions_handler
     @discord_cli.message do |event|
       mentions = event.message.mentions
+      channel_id = event.channel.id
       mentions.each do |m|
-        increment_user_mentions(m.username)
+        increment_user_mentions(m.username, channel_id)
       end
 
       unless mentions.empty?
@@ -57,18 +76,24 @@ class MentionCounter
     end
   end
 
-  def increment_user_mentions(username) # rubocop:disable Metrics/MethodLength
+  def increment_user_mentions(username, channel_id) # rubocop:disable Metrics/MethodLength
     rows = @db_cli.read(
-      'mentions', ['*'], [{ signature: :eq, params: ['user', username] }]
+      'mentions', ['*'], [
+        { signature: :eq, params: ['user', username] },
+        { signature: :eq, params: ['channel_id', channel_id] }
+      ]
     )
     if rows.empty?
-      @db_cli.write('mentions', %w[user count], [username, 1])
+      @db_cli.insert('mentions', %w[user count channel_id], [username, 1, channel_id])
     else
       current_count = rows[0]['count']
       @db_cli.update(
         'mentions',
         ['count'], [current_count + 1],
-        [{ signature: :eq, params: ['user', username] }]
+        [
+          { signature: :eq, params: ['user', username] },
+          { signature: :eq, params: ['channel_id', channel_id] }
+        ]
       )
     end
   end
@@ -78,7 +103,8 @@ class MentionCounter
         create table mentions (
           id integer primary key autoincrement,
           user varchar(100) unique,
-          count int
+          count int,
+          channel_id int
         );
     SQL
   rescue SQLite3::SQLException => e
