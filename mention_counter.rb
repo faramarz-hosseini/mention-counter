@@ -29,6 +29,7 @@ class MentionCounter
   def register_command_handlers
     calculate_mentions_handler
     reset_mentions_for_chan_handler
+    decrement_user_mentions_handler
   end
 
   def calculate_mentions_handler # rubocop:disable Metrics/MethodLength
@@ -58,12 +59,37 @@ class MentionCounter
       @db_cli.delete(
         'mentions', [{ signature: :eq, params: ['channel_id', event.channel.id] }]
       )
-      'counters successfully reset'
+      'Mention counts successfully reset'
     end
   end
 
-  def increment_mentions_handler
+  def decrement_user_mentions_handler # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+    @discord_cli.command(
+      :decrement,
+      chain_usable: true,
+      description: 'Decrements mention counts for users in input'
+    ) do |event|
+      mentions = event.message.mentions
+      return 'Decrement command must be followed by at least one mention' if mentions.empty?
+
+      mentions.each do |m|
+        row = @db_cli.read('mentions', ['*'], [
+                             { signature: :eq, params: ['user', m.username] },
+                             { signature: :eq, params: ['channel_id', event.channel.id] }
+                           ])
+        unless row[0].nil?
+          @db_cli.update('mentions', ['count'], [row[0]['count'] - 1],
+                         [{ signature: :eq, params: ['channel_id', event.channel.id] }])
+        end
+      end
+      "Counter decremented for: #{mentions.map(&:username).compact.join(', ')}"
+    end
+  end
+
+  def increment_mentions_handler # rubocop:disable Metrics/MethodLength
     @discord_cli.message do |event|
+      return nil if event.message.content.start_with?('/decrement')
+
       mentions = event.message.mentions
       channel_id = event.channel.id
       mentions.each do |m|
@@ -98,13 +124,14 @@ class MentionCounter
     end
   end
 
-  def initialize_mentions_table
+  def initialize_mentions_table # rubocop:disable Metrics/MethodLength
     @db_cli.storage.execute <<-SQL
         create table mentions (
           id integer primary key autoincrement,
-          user varchar(100) unique,
+          user varchar(100),
           count int,
-          channel_id int
+          channel_id int,
+          UNIQUE(user, channel_id)
         );
     SQL
   rescue SQLite3::SQLException => e
