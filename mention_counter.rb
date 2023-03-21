@@ -2,12 +2,11 @@
 
 require_relative 'sqlite_cli'
 
-require 'sqlite3'
 require 'discordrb'
 
 # counts number of times members in a channel were mentioned
 # and saves the counts to a sqlite3 db
-class MentionCounter
+class MentionCounter # rubocop:disable Metrics/ClassLength
   def initialize(db_name, bot_token)
     @discord_cli = Discordrb::Commands::CommandBot.new(token: bot_token, prefix: '/')
     @db_cli = SqliteCli.new(db_name)
@@ -45,8 +44,17 @@ class MentionCounter
         ['*'],
         [{ signature: :eq, params: ['channel_id', event.channel.id] }]
       )
-      rows.map { |r| "#{r['user']}: #{r['count'].to_i * mention_value.to_i}" }.compact.join('
-')
+      msg = String.new
+      total = 0
+      rows.each do |r|
+        calculated_amount = r['count'].to_i * mention_value.to_i
+        total += calculated_amount
+        msg += "#{r['user']}: #{calculated_amount}
+"
+      end
+      msg += "-------
+Total: #{total}"
+      msg
     end
   end
 
@@ -54,7 +62,7 @@ class MentionCounter
     @discord_cli.command(
       :reset_counts,
       chain_usable: true,
-      description: 'Resets (deletes) mention counts for the channel command was called in',
+      description: 'Resets (deletes) mention counts for the channel command was called in'
     ) do |event|
       @db_cli.delete(
         'mentions', [{ signature: :eq, params: ['channel_id', event.channel.id] }]
@@ -77,10 +85,13 @@ class MentionCounter
                              { signature: :eq, params: ['user', m.username] },
                              { signature: :eq, params: ['channel_id', event.channel.id] }
                            ])
-        unless row[0].nil?
-          @db_cli.update('mentions', ['count'], [row[0]['count'] - 1],
-                         [{ signature: :eq, params: ['channel_id', event.channel.id] }])
-        end
+        next if row[0].nil?
+
+        @db_cli.update('mentions', ['count'], [row[0]['count'] - 1],
+                       [
+                         { signature: :eq, params: ['channel_id', event.channel.id] },
+                         { signature: :eq, params: ['user', m.username] }
+                       ])
       end
       "Counter decremented for: #{mentions.map(&:username).compact.join(', ')}"
     end
