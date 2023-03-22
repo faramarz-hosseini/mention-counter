@@ -8,27 +8,23 @@ require 'discordrb'
 # and saves the counts to a sqlite3 db
 class MentionCounter # rubocop:disable Metrics/ClassLength
   def initialize(db_name, bot_token)
-    @discord_cli = Discordrb::Commands::CommandBot.new(token: bot_token, prefix: '/')
+    @discord_cli = Discordrb::Commands::CommandBot.new(token: bot_token, prefix: '!')
     @db_cli = SqliteCli.new(db_name)
     initialize_mentions_table
   end
 
   def run
-    register_event_handlers
     register_command_handlers
     @discord_cli.run
   end
 
   private
 
-  def register_event_handlers
-    increment_mentions_handler
-  end
-
   def register_command_handlers
     calculate_mentions_handler
     reset_mentions_for_chan_handler
     decrement_user_mentions_handler
+    increment_mentions_handler
   end
 
   def calculate_mentions_handler # rubocop:disable Metrics/MethodLength
@@ -98,18 +94,19 @@ Total: #{total}"
   end
 
   def increment_mentions_handler # rubocop:disable Metrics/MethodLength
-    @discord_cli.message do |event|
-      return nil if event.message.content.start_with?('/decrement')
+    @discord_cli.command(
+      :increment,
+      chain_usable: true,
+      description: 'Increments the mention count for a specific user in the channel command was called in'
+    ) do |event|
+      return 'At least one mention must follow the increment command' if mentions.empty?
 
       mentions = event.message.mentions
       channel_id = event.channel.id
       mentions.each do |m|
         increment_user_mentions(m.username, channel_id)
       end
-
-      unless mentions.empty?
-        event.respond "Count successfully incremented for #{mentions.map(&:username).compact.join(', ')}"
-      end
+      "Count successfully incremented for #{mentions.map(&:username).compact.join(', ')}"
     end
   end
 
