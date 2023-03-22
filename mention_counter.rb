@@ -99,9 +99,9 @@ Total: #{total}"
       chain_usable: true,
       description: 'Increments the mention count for a specific user in the channel command was called in'
     ) do |event|
+      mentions = event.message.mentions
       return 'At least one mention must follow the increment command' if mentions.empty?
 
-      mentions = event.message.mentions
       channel_id = event.channel.id
       mentions.each do |m|
         increment_user_mentions(m.username, channel_id)
