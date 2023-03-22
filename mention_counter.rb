@@ -79,7 +79,8 @@ Total: #{total}"
       mentions.each do |m|
         row = @db_cli.read('mentions', ['*'], [
                              { signature: :eq, params: ['user', m.username] },
-                             { signature: :eq, params: ['channel_id', event.channel.id] }
+                             { signature: :eq, params: ['channel_id', event.channel.id] },
+                             { signature: :gt, params: ['count', 0] }
                            ])
         next if row[0].nil?
 
