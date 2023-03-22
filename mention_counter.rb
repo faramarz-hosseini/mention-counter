@@ -38,7 +38,10 @@ class MentionCounter # rubocop:disable Metrics/ClassLength
       rows = @db_cli.read(
         'mentions',
         ['*'],
-        [{ signature: :eq, params: ['channel_id', event.channel.id] }]
+        [
+          { signature: :eq, params: ['channel_id', event.channel.id] },
+          { signature: :gt, params: ['count', 0] }
+        ]
       )
       msg = String.new
       total = 0
